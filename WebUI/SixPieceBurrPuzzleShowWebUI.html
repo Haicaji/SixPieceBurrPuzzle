@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>六子鲁班锁 - 交互式 3D 查看器</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            overflow: hidden;
+            height: 100vh;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0; left: 0;
+        }
+        canvas { display: block; }
+
+        /* 加载提示 */
+        #loading {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: #1a1a2e;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            font-size: 18px;
+            color: #7ecfff;
+        }
+        #loading .spinner {
+            width: 40px; height: 40px;
+            border: 4px solid rgba(126,207,255,0.2);
+            border-top-color: #7ecfff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #loading .error-msg { color: #ff6b6b; font-size: 14px; margin-top: 12px; max-width: 500px; text-align: center; display: none; }
+
+        /* 控制面板 */
+        #controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(20, 20, 40, 0.92);
+            border-radius: 16px;
+            padding: 24px 28px;
+            width: 320px;
+            z-index: 100;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.08);
+            display: none;
+        }
+        #controls h2 {
+            font-size: 18px;
+            margin-bottom: 20px;
+            text-align: center;
+            color: #7ecfff;
+            letter-spacing: 2px;
+        }
+        .slider-group {
+            margin-bottom: 16px;
+        }
+        .slider-group label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .slider-group label span.param-name {
+            color: #aac;
+        }
+        .slider-group label span.param-value {
+            background: rgba(126, 207, 255, 0.15);
+            color: #7ecfff;
+            padding: 2px 12px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 16px;
+            min-width: 40px;
+            text-align: center;
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255,255,255,0.12);
+            outline: none;
+            cursor: pointer;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #7ecfff;
+            box-shadow: 0 0 8px rgba(126, 207, 255, 0.5);
+            cursor: grab;
+        }
+        input[type="range"]::-webkit-slider-thumb:active {
+            cursor: grabbing;
+            transform: scale(1.15);
+        }
+
+        .separator {
+            border: none;
+            border-top: 1px solid rgba(255,255,255,0.08);
+            margin: 18px 0;
+        }
+
+        /* 显示选项 */
+        .display-options {
+            margin-bottom: 12px;
+        }
+        .display-options h3 {
+            font-size: 13px;
+            color: #889;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .checkbox-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .checkbox-group label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 13px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        .checkbox-group label:hover {
+            background: rgba(255,255,255,0.05);
+        }
+        .checkbox-group input[type="checkbox"] {
+            accent-color: #7ecfff;
+            width: 16px;
+            height: 16px;
+        }
+
+        /* 按钮区域 */
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+        }
+        .btn {
+            flex: 1;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            letter-spacing: 1px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #7ecfff, #4a9eff);
+            color: #111;
+        }
+        .btn-primary:hover {
+            box-shadow: 0 4px 16px rgba(126, 207, 255, 0.4);
+            transform: translateY(-1px);
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: #ccc;
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.18);
+            color: #fff;
+        }
+
+        /* 信息面板 */
+        #info-panel {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(20, 20, 40, 0.85);
+            border-radius: 12px;
+            padding: 12px 18px;
+            font-size: 12px;
+            color: #889;
+            z-index: 100;
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.06);
+            display: none;
+        }
+        #info-panel span { color: #7ecfff; font-weight: 600; }
+
+        /* 展示模式 */
+        .view-mode-group {
+            margin-bottom: 12px;
+        }
+        .view-mode-group h3 {
+            font-size: 13px;
+            color: #889;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .view-mode-btns {
+            display: flex;
+            gap: 6px;
+        }
+        .view-mode-btns button {
+            flex: 1;
+            padding: 7px 6px;
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 8px;
+            background: rgba(255,255,255,0.05);
+            color: #aab;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .view-mode-btns button.active {
+            background: rgba(126, 207, 255, 0.2);
+            border-color: #7ecfff;
+            color: #7ecfff;
+        }
+        .view-mode-btns button:hover {
+            background: rgba(126, 207, 255, 0.12);
+        }
+    </style>
+</head>
+<body>
+    <!-- 加载提示 -->
+    <div id="loading">
+        <div class="spinner"></div>
+        <div id="load-status">正在加载 Three.js 引擎...</div>
+        <div class="error-msg" id="load-error">加载失败，请在外部浏览器中打开 http://localhost:8080/interactive_viewer.html</div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <div id="controls">
+        <h2>🔧 六子鲁班锁</h2>
+
+        <div class="slider-group">
+            <label>
+                <span class="param-name">L (长度)</span>
+                <span class="param-value" id="L-val">2</span>
+            </label>
+            <input type="range" id="slider-L" min="2" max="20" step="2" value="6">
+        </div>
+        <div class="slider-group">
+            <label>
+                <span class="param-name">W (宽度)</span>
+                <span class="param-value" id="W-val">2</span>
+            </label>
+            <input type="range" id="slider-W" min="1" max="10" step="1" value="2">
+        </div>
+        <div class="slider-group">
+            <label>
+                <span class="param-name">H (高度)</span>
+                <span class="param-value" id="H-val">6</span>
+            </label>
+            <input type="range" id="slider-H" min="2" max="20" step="2" value="6">
+        </div>
+
+        <hr class="separator">
+
+        <div class="view-mode-group">
+            <h3>显示模式</h3>
+            <div class="view-mode-btns">
+                <button id="mode-assembled" class="active">组装</button>
+                <button id="mode-parts">分离</button>
+            </div>
+        </div>
+
+        <hr class="separator">
+
+        <div class="display-options">
+            <h3>零件显示</h3>
+            <div class="checkbox-group">
+                <label><input type="checkbox" data-part="A" checked> <span style="color:#ff4444;">■</span> A</label>
+                <label><input type="checkbox" data-part="B" checked> <span style="color:#00cc00;">■</span> B</label>
+                <label><input type="checkbox" data-part="C" checked> <span style="color:#0066ff;">■</span> C</label>
+                <label><input type="checkbox" data-part="D" checked> <span style="color:#ffcc00;">■</span> D</label>
+                <label><input type="checkbox" data-part="E" checked> <span style="color:#ff6600;">■</span> E</label>
+                <label><input type="checkbox" data-part="F" checked> <span style="color:#9900ff;">■</span> F</label>
+                <label><input type="checkbox" data-part="public" checked> <span style="color:#cccccc;">■</span> 公共</label>
+            </div>
+        </div>
+
+        <div class="display-options">
+            <div class="checkbox-group">
+                <label><input type="checkbox" id="show-edges" checked> 显示边线</label>
+                <label><input type="checkbox" id="show-axes"> 显示坐标轴</label>
+            </div>
+        </div>
+
+        <div class="btn-group">
+            <button class="btn btn-secondary" id="btn-reset">🔄 重置视角</button>
+        </div>
+    </div>
+
+    <div id="info-panel">
+        鼠标左键旋转 | 右键平移 | 滚轮缩放 &nbsp;|&nbsp; 
+        Max维度: <span id="info-max-dim">6</span> &nbsp;|&nbsp;
+        体素数: <span id="info-voxels">0</span>
+    </div>
+
+    <!-- Three.js ES Modules -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <!-- 加载超时检测 -->
+    <script>
+    setTimeout(function() {
+        var el = document.getElementById('loading');
+        if (el && el.style.display !== 'none') {
+            document.getElementById('load-status').textContent = '加载超时...';
+            document.getElementById('load-error').style.display = 'block';
+        }
+    }, 20000);
+    </script>
+
+    <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // ===== 加载成功，隐藏提示 =====
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('controls').style.display = 'block';
+    document.getElementById('info-panel').style.display = 'block';
+
+    // ===== 鲁班锁逻辑 (从 Python 移植) =====
+    const PARTS_CONFIG = {
+        'A': { color: [1, 0, 0, 0.85],       fillParam: [0, 1, 2, 1],  offset: [0, 1, 0]  },
+        'B': { color: [0, 0.8, 0, 0.85],     fillParam: [0, 1, 2, -1], offset: [0, -1, 0] },
+        'C': { color: [0, 0.4, 1, 0.85],     fillParam: [1, 2, 0, 1],  offset: [0, 0, 1]  },
+        'D': { color: [1, 0.8, 0, 0.85],     fillParam: [1, 2, 0, -1], offset: [0, 0, -1] },
+        'E': { color: [1, 0.4, 0, 0.85],     fillParam: [2, 0, 1, 1],  offset: [1, 0, 0]  },
+        'F': { color: [0.6, 0, 1, 0.85],     fillParam: [2, 0, 1, -1], offset: [-1, 0, 0] },
+        'public': { color: [0.8, 0.8, 0.8, 0.85], fillParam: null,   offset: [1, 1, 1]  }
+    };
+
+    function buildPuzzleVoxels(L, W, H) {
+        const maxDim = Math.max(L, 2 * W, H);
+        const space = [];
+        for (let x = 0; x < maxDim; x++) {
+            space[x] = [];
+            for (let y = 0; y < maxDim; y++) {
+                space[x][y] = [];
+                for (let z = 0; z < maxDim; z++) {
+                    space[x][y][z] = [];
+                }
+            }
+        }
+
+        const half = Math.floor(maxDim / 2);
+
+        for (const [partName, config] of Object.entries(PARTS_CONFIG)) {
+            if (!config.fillParam) continue;
+            const [axis0, axis1, axis2, dir] = config.fillParam;
+
+            for (let l = half - Math.floor(L / 2); l < half + Math.floor(L / 2); l++) {
+                const wStart = half + Math.min(0, dir * W);
+                const wEnd = half + Math.max(0, dir * W);
+                for (let w = wStart; w < wEnd; w++) {
+                    for (let h = half - Math.floor(H / 2); h < half + Math.floor(H / 2); h++) {
+                        const idx = [0, 0, 0];
+                        idx[axis0] = l;
+                        idx[axis1] = w;
+                        idx[axis2] = h;
+                        space[idx[0]][idx[1]][idx[2]].push(partName);
+                    }
+                }
+            }
+        }
+
+        const voxels = [];
+        for (let x = 0; x < maxDim; x++) {
+            for (let y = 0; y < maxDim; y++) {
+                for (let z = 0; z < maxDim; z++) {
+                    const parts = space[x][y][z];
+                    if (parts.length === 0) continue;
+                    const isPublic = parts.length > 1;
+                    voxels.push({
+                        x, y, z,
+                        partName: isPublic ? 'public' : parts[0],
+                        originalParts: parts.slice()
+                    });
+                }
+            }
+        }
+
+        return { voxels, maxDim };
+    }
+
+    // ===== Three.js 渲染 =====
+    let scene, camera, renderer, orbitControls;
+    let puzzleGroup = null;
+    let axesHelper = null;
+    let axisLabels = [];
+    let currentViewMode = 'assembled';
+    let currentL = 2, currentW = 2, currentH = 6;
+    const unitCube = 1;
+
+    // 缓存几何体和材质
+    const boxGeo = new THREE.BoxGeometry(unitCube * 0.98, unitCube * 0.98, unitCube * 0.98);
+    const edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    const edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, opacity: 0.3, transparent: true });
+
+    const partMaterials = {};
+    for (const [name, config] of Object.entries(PARTS_CONFIG)) {
+        partMaterials[name] = new THREE.MeshPhongMaterial({
+            color: new THREE.Color(config.color[0], config.color[1], config.color[2]),
+            transparent: true,
+            opacity: config.color[3],
+            shininess: 40
+        });
+    }
+
+    function createAxisLabel(text, color, position) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 128;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        ctx.font = 'bold 48px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = color;
+        ctx.fillText(text, 64, 32);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({ map: texture, depthTest: false });
+        const sprite = new THREE.Sprite(material);
+        sprite.position.set(position[0], position[1], position[2]);
+        sprite.scale.set(2, 1, 1);
+        return sprite;
+    }
+
+    function createAxisLabels() {
+        return [
+            createAxisLabel('X', '#ff4444', [22, 0, 0]),
+            createAxisLabel('Y', '#44ff44', [0, 22, 0]),
+            createAxisLabel('Z', '#4488ff', [0, 0, 22])
+        ];
+    }
+
+    function initScene() {
+        const container = document.getElementById('canvas-container');
+
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a2e);
+
+        camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.up.set(0, 0, 1);
+        camera.position.set(30, -30, 30);
+        camera.lookAt(0, 0, 0);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        container.appendChild(renderer.domElement);
+
+        orbitControls = new OrbitControls(camera, renderer.domElement);
+        orbitControls.enableDamping = true;
+        orbitControls.dampingFactor = 0.08;
+        orbitControls.rotateSpeed = 0.8;
+
+        // 灯光
+        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+        const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight1.position.set(10, 20, 15);
+        scene.add(dirLight1);
+        const dirLight2 = new THREE.DirectionalLight(0x8888ff, 0.3);
+        dirLight2.position.set(-10, -5, -10);
+        scene.add(dirLight2);
+
+        axesHelper = new THREE.AxesHelper(20);
+        axesHelper.visible = false;
+        scene.add(axesHelper);
+
+        // 坐标轴标签
+        axisLabels = createAxisLabels();
+        axisLabels.forEach(l => { l.visible = false; scene.add(l); });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        rebuildPuzzle();
+        animate();
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        orbitControls.update();
+        renderer.render(scene, camera);
+    }
+
+    function getVoxelPosition(voxel, center, maxDim) {
+        const baseX = (voxel.x - center) * unitCube;
+        const baseY = (voxel.y - center) * unitCube;
+        const baseZ = (voxel.z - center) * unitCube;
+
+        let ox = 0, oy = 0, oz = 0;
+        if (currentViewMode === 'parts') {
+            const cfg = PARTS_CONFIG[voxel.partName];
+            const dist = maxDim * 1.5;
+            ox = cfg.offset[0] * dist; oy = cfg.offset[1] * dist; oz = cfg.offset[2] * dist;
+        }
+        return { x: baseX + ox, y: baseY + oy, z: baseZ + oz };
+    }
+
+    function rebuildPuzzle() {
+        if (puzzleGroup) {
+            scene.remove(puzzleGroup);
+            puzzleGroup.traverse(child => {
+                if (child.geometry && child.geometry !== boxGeo && child.geometry !== edgeGeo) {
+                    child.geometry.dispose();
+                }
+            });
+        }
+        puzzleGroup = new THREE.Group();
+
+        const { voxels, maxDim } = buildPuzzleVoxels(currentL, currentW, currentH);
+        const showEdges = document.getElementById('show-edges').checked;
+
+        const visibleParts = new Set();
+        document.querySelectorAll('[data-part]').forEach(cb => {
+            if (cb.checked) visibleParts.add(cb.dataset.part);
+        });
+
+        const grouped = {};
+        for (const v of voxels) {
+            if (!visibleParts.has(v.partName)) continue;
+            if (!grouped[v.partName]) grouped[v.partName] = [];
+            grouped[v.partName].push(v);
+        }
+
+        const center = (maxDim - 1) / 2;
+        const dummy = new THREE.Object3D();
+
+        for (const [partName, partVoxels] of Object.entries(grouped)) {
+            const instMesh = new THREE.InstancedMesh(boxGeo, partMaterials[partName], partVoxels.length);
+            for (let i = 0; i < partVoxels.length; i++) {
+                const pos = getVoxelPosition(partVoxels[i], center, maxDim);
+                dummy.position.set(pos.x, pos.y, pos.z);
+                dummy.updateMatrix();
+                instMesh.setMatrixAt(i, dummy.matrix);
+            }
+            puzzleGroup.add(instMesh);
+
+            if (showEdges) {
+                for (let i = 0; i < partVoxels.length; i++) {
+                    const pos = getVoxelPosition(partVoxels[i], center, maxDim);
+                    const line = new THREE.LineSegments(edgeGeo, edgeMat);
+                    line.position.set(pos.x, pos.y, pos.z);
+                    puzzleGroup.add(line);
+                }
+            }
+        }
+
+        scene.add(puzzleGroup);
+        document.getElementById('info-max-dim').textContent = maxDim;
+        document.getElementById('info-voxels').textContent = voxels.length;
+    }
+
+    function setViewMode(mode) {
+        currentViewMode = mode;
+        document.querySelectorAll('.view-mode-btns button').forEach(b => b.classList.remove('active'));
+        document.getElementById('mode-' + mode).classList.add('active');
+        rebuildPuzzle();
+    }
+
+    function resetCamera() {
+        const maxDim = Math.max(currentL, 2 * currentW, currentH);
+        const dist = maxDim * 2;
+        camera.position.set(dist, -dist, dist);
+        camera.lookAt(0, 0, 0);
+        orbitControls.target.set(0, 0, 0);
+        orbitControls.update();
+    }
+
+    // ===== 事件绑定 =====
+    ['L', 'W', 'H'].forEach(param => {
+        const slider = document.getElementById('slider-' + param);
+        const display = document.getElementById(param + '-val');
+        slider.addEventListener('input', function() {
+            const val = parseInt(this.value);
+            display.textContent = val;
+            if (param === 'L') currentL = val;
+            else if (param === 'W') currentW = val;
+            else currentH = val;
+            rebuildPuzzle();
+        });
+    });
+
+    document.querySelectorAll('[data-part]').forEach(cb => {
+        cb.addEventListener('change', () => rebuildPuzzle());
+    });
+
+    document.getElementById('show-edges').addEventListener('change', () => rebuildPuzzle());
+    document.getElementById('show-axes').addEventListener('change', function() {
+        axesHelper.visible = this.checked;
+        axisLabels.forEach(l => { l.visible = this.checked; });
+    });
+
+    document.getElementById('mode-assembled').addEventListener('click', () => setViewMode('assembled'));
+    document.getElementById('mode-parts').addEventListener('click', () => setViewMode('parts'));
+
+    document.getElementById('btn-reset').addEventListener('click', resetCamera);
+
+    // 启动
+    initScene();
+    </script>
+</body>
+</html>
